@@ -15,31 +15,34 @@ CORS(app)
 API_KEY = "579b464db66ec23bdd00000144e7c0fd16ef44bd774012407adf6a1e" 
 OGD_BASE_URL = "https://api.data.gov.in/resource/"
 
-# --- CRITICAL: SET YOUR DATA FILE PATHS HERE ---
-# Your actual file structure based on the logs
-AGRICULTURE_DATA_PATH = "data/agriculture_production.csv"
-CLIMATE_DATA_PATH = "data/annual_rainfall.csv"  # Changed from .xls to .csv
+# --- YOUR ACTUAL FILE PATHS ---
+AGRICULTURE_DATA_PATHS = [    
+    "data/RS_Session_258_AU_1212_1.csv",    
+    "data/RJ_Session_246_AU2742_3.csv",     
+    "data/rs_session240_au1362_1.1.csv",    
+    "data/RJ_Session_246_AU2744_3.csv",    
+    "data/rs_session243_au1475_1.3.csv",    
+    "data/RS_Session_266_AU_2112_A.csv",
+]
 
-# If you keep the Excel file, install xlrd first:
-# pip install xlrd
-# Or convert to CSV and use: data/annual_rainfall.csv
+CLIMATE_DATA_PATH = "data/annual_rainfall.csv"
 
 # --- API RESOURCE IDs (Backup if files not available) ---
 AGRI_RESOURCE_IDS = [
-    "f20d7d45-e3d8-4603-bc79-15a3d0db1f9a",  # Production of Different Crops
-    "baf78e76-ff2c-4f8d-be2e-9e549eb9f799",  # Yield of Important Crops
-    "4ed94214-0ab1-4b9d-aa64-47f98ccdc687",  # Kharif Crops Production
+    "f20d7d45-e3d8-4603-bc79-15a3d0db1f9a",
+    "baf78e76-ff2c-4f8d-be2e-9e549eb9f799",
+    "4ed94214-0ab1-4b9d-aa64-47f98ccdc687",
 ]
 
 CLIMATE_RESOURCE_IDS = [
-    "3f373939-30d5-40dd-8c78-f4e9f421415e",  # Annual Rainfall (removed extra '9')
-    "84f3123a-56b8-42ac-9d19-3fabe0c3e13e",  # MP Rainfall
-    "b59a4532-63cb-47b1-b42a-9fbc13887b3f",  # Karnataka Rainfall
-    "2cbb9b86-0d19-4de9-a5c0-8e76813994e4",  # Gujarat Rainfall
+    "3f373939-30d5-40dd-8c78-f4e9f421415e",
+    "84f3123a-56b8-42ac-9d19-3fabe0c3e13e",
+    "b59a4532-63cb-47b1-b42a-9fbc13887b3f",
+    "2cbb9b86-0d19-4de9-a5c0-8e76813994e4",
 ]
 
 # --- HELPER: FETCH FROM API ---
-def fetch_from_api(resource_id, limit=5000):
+def fetch_from_api(resource_id, limit=10000):
     """Fetch data from OGD API."""
     api_url = f"{OGD_BASE_URL}{resource_id}?api-key={API_KEY}&format=json&limit={limit}"
     try:
@@ -71,7 +74,18 @@ def load_local_file(filepath):
         
         # Try CSV first
         if filepath.endswith('.csv'):
-            df = pd.read_csv(filepath, encoding='utf-8', on_bad_lines='skip', engine='python')
+            # Try different encodings
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(filepath, encoding=encoding, on_bad_lines='skip', engine='python')
+                    print(f"   ✓ Successfully loaded with {encoding} encoding")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                # If all encodings fail, try without specifying encoding
+                df = pd.read_csv(filepath, on_bad_lines='skip', engine='python')
         # Try Excel
         elif filepath.endswith(('.xls', '.xlsx')):
             df = pd.read_excel(filepath)
@@ -80,11 +94,171 @@ def load_local_file(filepath):
             return pd.DataFrame()
         
         print(f"   ✓ Loaded {len(df)} rows from file")
-        print(f"   ✓ Columns: {list(df.columns)[:5]}")
+        print(f"   ✓ Columns: {list(df.columns)}")
         return df
     except Exception as e:
-        print(f"   ✗ Error loading file: {str(e)[:100]}")
+        print(f"   ✗ Error loading file: {str(e)}")
         return pd.DataFrame()
+
+# --- SPECIALIZED FILE PROCESSING ---
+def detect_file_type(df, filename):
+    """Detect the type of agriculture file based on columns."""
+    columns_lower = [str(col).lower() for col in df.columns]
+    
+    # Type 1: Year-wise production data (State/UT with year columns)
+    year_columns = any(str(col).startswith(('2013', '2014', '2015', '2016', '2017')) for col in df.columns)
+    state_columns = any('state' in col.lower() or 'ut' in col.lower() for col in columns_lower)
+    
+    if year_columns and state_columns:
+        return "year_wise_production"
+    
+    # Type 2: Crop-wise data with single year
+    crop_columns = any('crop' in col.lower() for col in columns_lower)
+    production_columns = any('production' in col.lower() or 'quantity' in col.lower() for col in columns_lower)
+    
+    if crop_columns and production_columns:
+        return "crop_wise"
+    
+    # Type 3: Unknown format
+    return "unknown"
+
+def process_year_wise_file(df, filename):
+    """Process files with year-wise columns like '2013-14 - Production'."""
+    print(f"   → Processing as YEAR-WISE file")
+    
+    # Create a copy to avoid modifying original
+    processed_df = df.copy()
+    
+    # Map columns to standard names
+    column_mappings = {}
+    
+    # Find state column
+    state_cols = [col for col in df.columns if 'state' in str(col).lower() or 'ut' in str(col).lower()]
+    if state_cols:
+        column_mappings[state_cols[0]] = 'State_Name'
+    
+    # Find crop column (if exists)
+    crop_cols = [col for col in df.columns if 'crop' in str(col).lower()]
+    if crop_cols:
+        column_mappings[crop_cols[0]] = 'Crop_Name'
+    else:
+        # If no crop column, we'll use filename or assume single crop
+        processed_df['Crop_Name'] = f"CROP_FROM_{filename}"
+    
+    # Apply initial renaming
+    processed_df.rename(columns=column_mappings, inplace=True)
+    
+    # Handle year-wise data
+    year_columns = [col for col in processed_df.columns if str(col).startswith(('2013', '2014', '2015', '2016', '2017'))]
+    print(f"   → Found year columns: {year_columns}")
+    
+    melted_dfs = []
+    
+    for year_col in year_columns:
+        # Extract year from column name
+        year_match = re.search(r'(\d{4})', str(year_col))
+        if year_match:
+            year_value = int(year_match.group(1))
+            
+            # Create temporary dataframe for this year
+            temp_df = processed_df.copy()
+            
+            # Select only relevant columns that exist
+            available_cols = []
+            if 'State_Name' in temp_df.columns:
+                available_cols.append('State_Name')
+            if 'Crop_Name' in temp_df.columns:
+                available_cols.append('Crop_Name')
+            
+            if available_cols:
+                temp_df = temp_df[available_cols].copy()
+                temp_df['Year'] = year_value
+                temp_df['Production'] = pd.to_numeric(processed_df[year_col], errors='coerce')
+                temp_df['Source_File'] = filename
+                
+                melted_dfs.append(temp_df)
+    
+    if melted_dfs:
+        result_df = pd.concat(melted_dfs, ignore_index=True)
+        print(f"   ✓ Converted to long format: {len(result_df)} rows")
+        return result_df
+    else:
+        print(f"   ✗ Could not convert year-wise data")
+        return pd.DataFrame()
+
+def process_crop_wise_file(df, filename):
+    """Process files with crop-wise data."""
+    print(f"   → Processing as CROP-WISE file")
+    
+    processed_df = df.copy()
+    
+    # Map columns to standard names
+    column_mappings = {}
+    
+    # Find relevant columns
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if 'state' in col_lower or 'ut' in col_lower:
+            column_mappings[col] = 'State_Name'
+        elif 'crop' in col_lower:
+            column_mappings[col] = 'Crop_Name'
+        elif 'production' in col_lower or 'quantity' in col_lower:
+            column_mappings[col] = 'Production'
+        elif 'year' in col_lower:
+            column_mappings[col] = 'Year'
+    
+    processed_df.rename(columns=column_mappings, inplace=True)
+    
+    # Ensure required columns exist
+    if 'State_Name' not in processed_df.columns:
+        processed_df['State_Name'] = 'UNKNOWN_STATE'
+    
+    if 'Crop_Name' not in processed_df.columns:
+        # Try to find crop information from other columns
+        crop_cols = [col for col in processed_df.columns if any(crop in str(col).lower() for crop in ['wheat', 'rice', 'maize', 'pulse'])]
+        if crop_cols:
+            processed_df['Crop_Name'] = processed_df[crop_cols[0]].astype(str)
+        else:
+            processed_df['Crop_Name'] = f"CROP_FROM_{filename}"
+    
+    if 'Production' not in processed_df.columns:
+        # Try to find production/numeric columns
+        numeric_cols = processed_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            processed_df['Production'] = processed_df[numeric_cols[0]]
+        else:
+            processed_df['Production'] = 0
+    
+    if 'Year' not in processed_df.columns:
+        # Try to extract year from filename or use default
+        year_match = re.search(r'(\d{4})', filename)
+        if year_match:
+            processed_df['Year'] = int(year_match.group(1))
+        else:
+            processed_df['Year'] = 2015  # Default year
+    
+    # Select only the columns we need
+    final_cols = ['State_Name', 'Crop_Name', 'Production', 'Year']
+    available_cols = [col for col in final_cols if col in processed_df.columns]
+    
+    return processed_df[available_cols]
+
+def process_agriculture_file(filepath, df):
+    """Process individual agriculture files based on their structure."""
+    filename = os.path.basename(filepath)
+    print(f"   → Processing {filename} with columns: {list(df.columns)}")
+    
+    # Detect file type
+    file_type = detect_file_type(df, filename)
+    print(f"   → Detected file type: {file_type}")
+    
+    if file_type == "year_wise_production":
+        return process_year_wise_file(df, filename)
+    elif file_type == "crop_wise":
+        return process_crop_wise_file(df, filename)
+    else:
+        print(f"   ⚠️ Unknown file format, attempting basic processing")
+        return process_crop_wise_file(df, filename)
 
 # --- MAIN DATA LOADING FUNCTION ---
 def load_and_clean_data():
@@ -97,149 +271,128 @@ def load_and_clean_data():
     print("\n1️⃣  LOADING AGRICULTURE DATA...")
     all_agri_dfs = []
     
-    # Try loading from local file first
-    agri_df_local = load_local_file(AGRICULTURE_DATA_PATH)
-    if not agri_df_local.empty:
-        all_agri_dfs.append(agri_df_local)
-        print(f"   ✓ Local file added: {len(agri_df_local)} rows")
+    # Load all your agriculture files
+    for filepath in AGRICULTURE_DATA_PATHS:
+        print(f"\n   📁 Processing: {os.path.basename(filepath)}")
+        df = load_local_file(filepath)
+        if not df.empty:
+            processed_df = process_agriculture_file(filepath, df)
+            if not processed_df.empty:
+                all_agri_dfs.append(processed_df)
+                print(f"   ✓ Added: {len(processed_df)} rows")
+            else:
+                print(f"   ✗ No valid data after processing")
+        else:
+            print(f"   ✗ Could not load file")
     
-    # ALWAYS fetch from APIs to supplement local data (unless you have 1000+ rows locally)
-    if len(all_agri_dfs) == 0 or (len(all_agri_dfs) > 0 and len(all_agri_dfs[0]) < 1000):
-        print("   → Supplementing with API data for more comprehensive coverage...")
+    # Supplement with API data if we don't have enough
+    total_rows = sum(len(df) for df in all_agri_dfs)
+    print(f"\n   📊 Total rows from files: {total_rows}")
+    
+    if total_rows < 1000:
+        print(f"   → Only {total_rows} rows from files, supplementing with API...")
         for rid in AGRI_RESOURCE_IDS:
-            temp_df = fetch_from_api(rid)
-            if not temp_df.empty:
-                all_agri_dfs.append(temp_df)
-    else:
-        print("   → Local file has sufficient data, skipping API fetch")
+            print(f"\n   🌐 Fetching agriculture data from API: {rid}")
+            api_df = fetch_from_api(rid, limit=10000)
+            if not api_df.empty:
+                all_agri_dfs.append(api_df)
+                print(f"   ✅ Added API data: {len(api_df)} rows")
     
     # Combine all agriculture dataframes
     if all_agri_dfs:
         agriculture_df = pd.concat(all_agri_dfs, ignore_index=True)
-        print(f"\n   ✓ Combined Agriculture Data: {len(agriculture_df)} rows")
-    else:
-        agriculture_df = pd.DataFrame()
-        print(f"\n   ✗ NO AGRICULTURE DATA LOADED!")
-    
-    # Clean Agriculture Data
-    if not agriculture_df.empty:
-        print("   → Cleaning Agriculture data...")
+        print(f"\n   ✅ COMBINED AGRICULTURE DATA: {len(agriculture_df)} rows")
         
-        # Normalize column names (handle different naming conventions)
-        col_map = {
-            # State names
-            'state_name': 'State_Name', 'state': 'State_Name', 'State': 'State_Name',
-            'St_Nm': 'State_Name', 'st_nm': 'State_Name',  # YOUR FILE FORMAT
-            # District names
-            'district_name': 'District_Name', 'district': 'District_Name', 'District': 'District_Name',
-            'Dist_Nm': 'District_Name', 'dist_nm': 'District_Name',
-            # Crop names
-            'crop_name': 'Crop_Name', 'crop': 'Crop_Name', 'Crop': 'Crop_Name',
-            'Crop_Name': 'Crop_Name',  # YOUR FILE FORMAT
-            # Production
-            'production': 'Production', 'Production (in tonnes)': 'Production',
-            'Production': 'Production',  # YOUR FILE FORMAT
-            # Yield
-            'yield': 'Yield', 'Yield (Kg per Hectare)': 'Yield',
-            # Area
-            'area': 'Area', 'Area (in Hectares)': 'Area',
-            # Year
-            'crop_year': 'Year', 'year': 'Year', 'Year': 'Year', 'season_year': 'Year',
-            'Crop_Year': 'Year',  # YOUR FILE FORMAT
-            'value': 'Production',
-        }
+        # Final cleaning
+        initial_count = len(agriculture_df)
         
-        # Print columns before rename for debugging
-        print(f"   → Original columns: {list(agriculture_df.columns)}")
-        agriculture_df.rename(columns=col_map, inplace=True)
-        print(f"   → Renamed columns: {list(agriculture_df.columns)}")
-        
-        # Ensure key columns exist
-        for col in ['State_Name', 'District_Name', 'Crop_Name', 'Production', 'Year']:
+        # Ensure required columns
+        for col in ['State_Name', 'Crop_Name', 'Production', 'Year']:
             if col not in agriculture_df.columns:
                 agriculture_df[col] = np.nan
         
-        # Clean text columns
+        # Clean data
         agriculture_df['State_Name'] = agriculture_df['State_Name'].astype(str).str.upper().str.strip()
-        agriculture_df['District_Name'] = agriculture_df['District_Name'].astype(str).str.upper().str.strip()
         agriculture_df['Crop_Name'] = agriculture_df['Crop_Name'].astype(str).str.upper().str.strip()
+        agriculture_df['Production'] = pd.to_numeric(agriculture_df['Production'], errors='coerce')
+        agriculture_df['Year'] = pd.to_numeric(agriculture_df['Year'], errors='coerce')
         
-        # Clean numeric columns
-        agriculture_df['Year'] = pd.to_numeric(agriculture_df['Year'], errors='coerce').fillna(0).astype(int)
-        agriculture_df['Production'] = pd.to_numeric(agriculture_df['Production'], errors='coerce').fillna(0)
+        # Remove invalid rows - BE CAREFUL WITH FILTERS
+        agriculture_df = agriculture_df[
+            (agriculture_df['State_Name'].notna()) & 
+            (agriculture_df['State_Name'] != 'NAN') &
+            (agriculture_df['State_Name'] != '') &
+            (agriculture_df['Crop_Name'].notna()) &
+            (agriculture_df['Crop_Name'] != 'NAN') &
+            (agriculture_df['Production'] > 0) &
+            (agriculture_df['Year'] >= 1900) &  # Reasonable year filter
+            (agriculture_df['Year'] <= 2025)    # Don't allow future years
+        ].copy()
         
-        if 'Yield' in agriculture_df.columns:
-            agriculture_df['Yield'] = pd.to_numeric(agriculture_df['Yield'], errors='coerce').fillna(0)
-        if 'Area' in agriculture_df.columns:
-            agriculture_df['Area'] = pd.to_numeric(agriculture_df['Area'], errors='coerce').fillna(0)
+        print(f"   ✅ FINAL CLEANED: {len(agriculture_df)} rows (removed {initial_count - len(agriculture_df)})")
+        print(f"   ✅ States: {agriculture_df['State_Name'].nunique()}")
+        print(f"   ✅ Crops: {agriculture_df['Crop_Name'].nunique()}")
         
-        # Remove invalid rows (BUT BE CAREFUL NOT TO REMOVE ALL DATA)
-        initial_count = len(agriculture_df)
-        agriculture_df = agriculture_df[agriculture_df['Year'] >= 1900]
-        print(f"   → After year filter (>=1900): {len(agriculture_df)} rows (removed {initial_count - len(agriculture_df)})")
-        
-        # Only remove NAN states, not empty strings
-        agriculture_df = agriculture_df[~agriculture_df['State_Name'].isin(['NAN', 'nan', ''])]
-        print(f"   → After removing NAN states: {len(agriculture_df)} rows")
-        
-        print(f"   ✓ Cleaned Agriculture Data: {len(agriculture_df)} rows")
-        print(f"   ✓ States: {agriculture_df['State_Name'].nunique()}")
-        print(f"   ✓ Crops: {agriculture_df['Crop_Name'].nunique()}")
-        print(f"   ✓ Year Range: {agriculture_df['Year'].min()} - {agriculture_df['Year'].max()}")
+        if len(agriculture_df) > 0:
+            print(f"   ✅ Year Range: {agriculture_df['Year'].min()} - {agriculture_df['Year'].max()}")
+            # Show sample of data
+            print(f"\n   📊 Sample Data:")
+            print(agriculture_df[['State_Name', 'Crop_Name', 'Year', 'Production']].head(3))
+        else:
+            print(f"   ❌ No valid agriculture data after cleaning")
+    else:
+        agriculture_df = pd.DataFrame()
+        print(f"\n   ❌ NO AGRICULTURE DATA LOADED!")
     
     # ========== CLIMATE DATA ==========
     print("\n2️⃣  LOADING CLIMATE DATA...")
     all_climate_dfs = []
     
-    # Try loading from local file first
+    # Try loading from local file first (using the working approach from your previous code)
     climate_df_local = load_local_file(CLIMATE_DATA_PATH)
     if not climate_df_local.empty:
         all_climate_dfs.append(climate_df_local)
+        print(f"   ✓ Local file added: {len(climate_df_local)} rows")
     else:
-        # If Excel file failed, suggest converting to CSV
-        if CLIMATE_DATA_PATH.endswith(('.xls', '.xlsx')):
-            print("   💡 TIP: Convert Excel file to CSV for better compatibility")
-            print("      Option 1: Open in Excel and 'Save As' -> CSV")
-            print("      Option 2: Install xlrd: pip install xlrd")
-            print("      Option 3: Install openpyxl: pip install openpyxl")
+        print("   → Local climate file not available")
     
-    # If local file failed, try APIs
+    # Fetch from APIs (using the working approach)
     if not all_climate_dfs:
         print("   → Local file not available, trying APIs...")
         for rid in CLIMATE_RESOURCE_IDS:
-            temp_df = fetch_from_api(rid)
+            temp_df = fetch_from_api(rid, limit=10000)
             if not temp_df.empty:
                 all_climate_dfs.append(temp_df)
     
     # Combine all climate dataframes
     if all_climate_dfs:
         climate_df = pd.concat(all_climate_dfs, ignore_index=True)
-        print(f"\n   ✓ Combined Climate Data: {len(climate_df)} rows")
+        print(f"\n   ✅ COMBINED CLIMATE DATA: {len(climate_df)} rows")
     else:
         climate_df = pd.DataFrame()
-        print(f"\n   ✗ NO CLIMATE DATA LOADED!")
+        print(f"\n   ❌ NO CLIMATE DATA LOADED!")
     
-    # Clean Climate Data
+    # Clean Climate Data (using the working approach from your previous code)
     if not climate_df.empty:
         print("   → Cleaning Climate data...")
         
-        # Normalize column names
+        # Use the column mapping that worked before
         col_map = {
             # State/District names
             'state_name': 'State_Name', 'state': 'State_Name', 'State': 'State_Name',
             'district_name': 'State_Name', 'district': 'State_Name', 'District': 'State_Name',
             'subdivision': 'State_Name', 'sub_division': 'State_Name',
             'Dist_Name': 'State_Name', 'dist_name': 'State_Name',
-            'ST_Name': 'State_Name', 'st_name': 'State_Name',  # YOUR FILE FORMAT
+            'ST_Name': 'State_Name', 'st_name': 'State_Name',
             # Rainfall
             'annual': 'Rainfall', 'rainfall': 'Rainfall', 'Rainfall': 'Rainfall',
             'annual_rainfall': 'Rainfall', 'annual_average_rainfall_mm': 'Rainfall',
             'rain_mm': 'Rainfall', 'ANNUAL_RAIN': 'Rainfall', 'Annual': 'Rainfall',
-            'ANNUAL': 'Rainfall',  # YOUR FILE FORMAT - this is the key one!
+            'ANNUAL': 'Rainfall',  # This is the key one!
             # Year
             'year_code': 'Year', 'rain_year': 'Year', 'year': 'Year', 'Year': 'Year', 
             'YR': 'Year', 'Yr': 'Year',
-            'YEAR': 'Year',  # YOUR FILE FORMAT - this is critical!
+            'YEAR': 'Year',  # This is critical!
         }
         
         print(f"   → Original columns: {list(climate_df.columns)}")
@@ -250,26 +403,39 @@ def load_and_clean_data():
         for col in ['State_Name', 'Rainfall', 'Year']:
             if col not in climate_df.columns:
                 climate_df[col] = np.nan
+                print(f"   ⚠️  Added missing column: {col}")
         
-        # Clean columns
+        # Clean columns (BE CAREFUL - don't remove all data)
         climate_df['State_Name'] = climate_df['State_Name'].astype(str).str.upper().str.strip()
         climate_df['Year'] = pd.to_numeric(climate_df['Year'], errors='coerce').fillna(0).astype(int)
         climate_df['Rainfall'] = pd.to_numeric(climate_df['Rainfall'], errors='coerce').fillna(0)
         
-        # Remove invalid rows (BE CAREFUL)
+        # Remove invalid rows (BUT BE CAREFUL NOT TO REMOVE ALL DATA)
         initial_count = len(climate_df)
-        climate_df = climate_df[climate_df['Year'] >= 1900]
-        print(f"   → After year filter (>=1900): {len(climate_df)} rows (removed {initial_count - len(climate_df)})")
         
-        climate_df = climate_df[~climate_df['State_Name'].isin(['NAN', 'nan', ''])]
-        print(f"   → After removing NAN states: {len(climate_df)} rows")
+        # Only remove clearly invalid data
+        climate_df = climate_df[
+            (climate_df['Year'] >= 1900) & 
+            (climate_df['Year'] <= 2025) &
+            (~climate_df['State_Name'].isin(['NAN', 'nan', ''])) &
+            (climate_df['State_Name'].notna())
+        ]
+        
+        print(f"   → After basic cleaning: {len(climate_df)} rows (removed {initial_count - len(climate_df)})")
         
         # Don't remove zero rainfall - it might be valid data
         # climate_df = climate_df[climate_df['Rainfall'] > 0]
         
-        print(f"   ✓ Cleaned Climate Data: {len(climate_df)} rows")
-        print(f"   ✓ States: {climate_df['State_Name'].nunique()}")
-        print(f"   ✓ Year Range: {climate_df['Year'].min()} - {climate_df['Year'].max()}")
+        print(f"   ✅ Cleaned Climate Data: {len(climate_df)} rows")
+        if len(climate_df) > 0:
+            print(f"   ✅ States: {climate_df['State_Name'].nunique()}")
+            print(f"   ✅ Year Range: {climate_df['Year'].min()} - {climate_df['Year'].max()}")
+            
+            # Show sample
+            print(f"\n   📊 Sample Climate Data:")
+            print(climate_df[['State_Name', 'Year', 'Rainfall']].head(3))
+        else:
+            print(f"   ❌ No valid climate data after cleaning")
     
     print("\n" + "="*60)
     print("📊 DATA LOAD COMPLETE")
@@ -280,15 +446,23 @@ def load_and_clean_data():
 # Load data globally
 AGRICULTURE_DF, CLIMATE_DF = load_and_clean_data()
 
-# Calculate latest year
+# Calculate latest year (FIXED - no future years)
 def get_latest_year():
     if not AGRICULTURE_DF.empty and 'Year' in AGRICULTURE_DF.columns:
-        valid_years = AGRICULTURE_DF[AGRICULTURE_DF['Year'] > 1900]['Year']
+        # Filter out future years and invalid years
+        current_year = pd.Timestamp.now().year
+        valid_years = AGRICULTURE_DF[
+            (AGRICULTURE_DF['Year'] > 1900) & 
+            (AGRICULTURE_DF['Year'] <= current_year)
+        ]['Year']
         if not valid_years.empty:
             return int(valid_years.max())
-    return 2017
+    return 2020  # Reasonable default
 
 LATEST_AGRI_YEAR = get_latest_year()
+
+# [REST OF THE CODE - KEEP ALL THE ENTITY EXTRACTION, Q&A FUNCTIONS, AND FLASK ROUTES FROM YOUR WORKING CODE]
+# ... (copy all the entity extraction, Q&A functions, and Flask routes from your working code above)
 
 # --- ENTITY EXTRACTION ---
 def extract_states(question):
@@ -422,8 +596,6 @@ def find_highest_lowest(metric, crop=None, state=None):
     
     response['answer'] += f"- **Crop**: {result.get('Crop_Name', 'N/A')}\n"
     response['answer'] += f"- **State**: {result.get('State_Name', 'N/A')}\n"
-    if 'District_Name' in result and result['District_Name'] != 'NAN':
-        response['answer'] += f"- **District**: {result.get('District_Name', 'N/A')}\n"
     response['answer'] += f"- **Production**: {result.get('Production', 0)/1000:.2f}k tonnes\n"
     response['answer'] += f"- **Year**: {result.get('Year', 'N/A')}\n"
     
@@ -597,7 +769,7 @@ def handle_query():
     if AGRICULTURE_DF.empty and CLIMATE_DF.empty:
         print("ERROR: No data loaded!")
         return jsonify({
-            "answer": "**❌ CRITICAL ERROR**\n\nNo data is loaded. Please ensure:\n1. CSV files are in the same folder as app.py\n2. Files are named correctly\n3. API key is valid\n\nCheck terminal for detailed error messages.",
+            "answer": "**❌ CRITICAL ERROR**\n\nNo data is loaded. Please ensure:\n1. CSV files are in the 'data' folder\n2. Files are named correctly\n3. Check terminal for detailed error messages.",
             "sources": []
         }), 500
     
@@ -631,9 +803,9 @@ if __name__ == '__main__':
     if AGRICULTURE_DF.empty and CLIMATE_DF.empty:
         print("\n⚠️  WARNING: NO DATA LOADED!")
         print("\n📝 QUICK FIX:")
-        print("1. Put your CSV files in the same folder as app.py")
-        print("2. Name them: agriculture_production.csv and annual_rainfall.csv")
-        print("3. Or update file paths at the top of this script")
+        print("1. Ensure all CSV files are in the 'data' folder")
+        print("2. Check file names match AGRICULTURE_DATA_PATHS")
+        print("3. Verify annual_rainfall.csv exists")
         print("\nCheck the detailed logs above for specific errors.")
     
     print("\n")

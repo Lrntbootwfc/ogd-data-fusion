@@ -7,6 +7,7 @@ import os
 import requests 
 import traceback
 from difflib import get_close_matches
+from waitress import serve 
 
 app = Flask(__name__)
 CORS(app) 
@@ -852,24 +853,35 @@ def handle_query():
         print("ERROR:", str(e))
         traceback.print_exc()
         return jsonify({"error": f"Internal error: {str(e)}"}), 500
+    
+    
+# if __name__ == '__main__':
+#     # Production server for Windows (Waitress)
+#     # Use 0.0.0.0 for deployment to make it accessible to your frontend if they run on different processes/containers
+#     print("\n" + "="*60)
+#     print("🚀 BACKEND SERVER STARTING (via Waitress)")
+#     print("="*60)
+#     print(f"✓ Server: http://0.0.0.0:5000")
+#     print("="*60 + "\n")
+#     serve(app, host='0.0.0.0', port=5000)
 
-if __name__ == '__main__':
-    print("\n" + "="*60)
-    print("🚀 BACKEND SERVER STARTING")
-    print("="*60)
-    print(f"✓ Agriculture Rows: {len(AGRICULTURE_DF)}")
-    print(f"✓ Climate Rows: {len(CLIMATE_DF)}")
-    print(f"✓ Latest Year: {LATEST_AGRI_YEAR}")
-    print(f"✓ Server: http://127.0.0.1:5000")
-    print("="*60)
+# if __name__ == '__main__':
+#     print("\n" + "="*60)
+#     print("🚀 BACKEND SERVER STARTING")
+#     print("="*60)
+#     print(f"✓ Agriculture Rows: {len(AGRICULTURE_DF)}")
+#     print(f"✓ Climate Rows: {len(CLIMATE_DF)}")
+#     print(f"✓ Latest Year: {LATEST_AGRI_YEAR}")
+#     print(f"✓ Server: http://127.0.0.1:5000")
+#     print("="*60)
     
-    if AGRICULTURE_DF.empty and CLIMATE_DF.empty:
-        print("\n⚠️  WARNING: NO DATA LOADED!")
-        print("\n📝 QUICK FIX:")
-        print("1. Ensure all CSV files are in the 'data' folder")
-        print("2. Check file names match AGRICULTURE_DATA_PATHS")
-        print("3. Verify annual_rainfall.csv exists")
-        print("\nCheck the detailed logs above for specific errors.")
+#     if AGRICULTURE_DF.empty and CLIMATE_DF.empty:
+#         print("\n⚠️  WARNING: NO DATA LOADED!")
+#         print("\n📝 QUICK FIX:")
+#         print("1. Ensure all CSV files are in the 'data' folder")
+#         print("2. Check file names match AGRICULTURE_DATA_PATHS")
+#         print("3. Verify annual_rainfall.csv exists")
+#         print("\nCheck the detailed logs above for specific errors.")
     
-    print("\n")
-    app.run(debug=True, host='127.0.0.1', port=5000)
+#     print("\n")
+#     app.run(debug=True, host='127.0.0.1', port=5000)

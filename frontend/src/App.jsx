@@ -8,7 +8,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState('light');
-  
+
   const answerSectionRef = useRef(null);
 
   // Initialize theme
@@ -22,7 +22,7 @@ function App() {
   useEffect(() => {
     if (answer && answerSectionRef.current) {
       setTimeout(() => {
-        answerSectionRef.current.scrollIntoView({ 
+        answerSectionRef.current.scrollIntoView({
           behavior: 'smooth',
           block: 'start'
         });
@@ -47,7 +47,9 @@ function App() {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:5000/api/query', {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+      const response = await fetch(`${API_BASE_URL}/api/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -77,7 +79,7 @@ function App() {
   // Function to format answer text with proper HTML rendering
   const formatAnswerText = (text) => {
     if (!text) return '';
-    
+
     let formattedText = text
       // Headers
       .replace(/^## (.*$)/gim, '<h2>$1</h2>')
@@ -99,13 +101,13 @@ function App() {
   // Function to create visualization data from answer
   const createVisualizations = (answerText) => {
     const visualizations = [];
-    
+
     // Extract state comparison data
     const stateMatch = answerText.match(/Comparison: (.*?) vs (.*?)(?:\n|$)/);
     if (stateMatch) {
       const state1 = stateMatch[1];
       const state2 = stateMatch[2];
-      
+
       // Mock rainfall data
       visualizations.push({
         type: 'rainfall',
@@ -125,7 +127,7 @@ function App() {
       if (stateMatch) {
         const state = stateMatch[1];
         const crops = [];
-        
+
         // Extract crop data
         const cropLines = section.split('\n').filter(line => line.includes('**') && line.includes('tonnes'));
         cropLines.forEach((line, index) => {
@@ -138,7 +140,7 @@ function App() {
             });
           }
         });
-        
+
         if (crops.length > 0) {
           visualizations.push({
             type: 'crops',
@@ -155,7 +157,7 @@ function App() {
   // Render visualization components
   const renderVisualization = (viz, index) => {
     const maxValue = Math.max(...viz.data.map(item => item.value || item.production));
-    
+
     switch (viz.type) {
       case 'rainfall':
         return (
@@ -168,9 +170,9 @@ function App() {
             <div className="chart-container">
               {viz.data.map((item, i) => (
                 <div key={i} style={{ marginBottom: '1rem' }}>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
                     marginBottom: '0.5rem',
                     color: 'var(--text-primary)'
                   }}>
@@ -178,9 +180,9 @@ function App() {
                     <span style={{ fontWeight: '600' }}>{item.value} mm</span>
                   </div>
                   <div className="progress-bar">
-                    <div 
+                    <div
                       className="progress-fill"
-                      style={{ 
+                      style={{
                         width: `${(item.value / 1500) * 100}%`,
                         background: item.color
                       }}
@@ -193,7 +195,7 @@ function App() {
             </div>
           </div>
         );
-      
+
       case 'crops':
         return (
           <div key={index} className="viz-card">
@@ -204,9 +206,9 @@ function App() {
             <div className="chart-container">
               {viz.data.map((item, i) => (
                 <div key={i} style={{ marginBottom: '1rem' }}>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
                     marginBottom: '0.5rem',
                     color: 'var(--text-primary)'
                   }}>
@@ -214,9 +216,9 @@ function App() {
                     <span style={{ fontWeight: '600' }}>{item.production}k tonnes</span>
                   </div>
                   <div className="progress-bar">
-                    <div 
+                    <div
                       className="progress-fill"
-                      style={{ 
+                      style={{
                         width: `${(item.production / maxValue) * 100}%`,
                         background: item.color
                       }}
@@ -229,7 +231,7 @@ function App() {
             </div>
           </div>
         );
-      
+
       default:
         return (
           <div key={index} className="viz-card">
@@ -260,7 +262,7 @@ function App() {
       url: "https://data.gov.in/catalog/production-different-crops"
     },
     {
-      name: "Climate & Rainfall Data", 
+      name: "Climate & Rainfall Data",
       url: "https://data.gov.in/catalog/annual-rainfall"
     },
     {
@@ -301,8 +303,8 @@ function App() {
                 aria-label="Enter your question about agriculture and climate data"
               />
               {question && (
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="clear-btn"
                   onClick={clearQuestion}
                   aria-label="Clear question"
@@ -311,7 +313,7 @@ function App() {
                 </button>
               )}
             </div>
-            
+
             <div className="controls-row">
               <button type="submit" disabled={loading || !question.trim()} className="submit-btn">
                 {loading ? (
@@ -338,8 +340,8 @@ function App() {
           </div>
           <div className="questions-grid">
             {sampleQuestions.map((q, index) => (
-              <div 
-                key={index} 
+              <div
+                key={index}
                 className="question-card"
                 onClick={() => setQuestion(q)}
                 tabIndex={0}
@@ -366,15 +368,15 @@ function App() {
               </div>
             </div>
           )}
-          
+
           {error && (
             <div className="error-message" role="alert">
               <div className="error-icon">⚠️</div>
               <div className="error-content">
                 <strong>Unable to process request</strong>
                 <p>{error}</p>
-                <button 
-                  onClick={() => setError(null)} 
+                <button
+                  onClick={() => setError(null)}
                   className="dismiss-error"
                 >
                   Dismiss
@@ -389,10 +391,10 @@ function App() {
                 <h2>✅ Data-Backed Answer</h2>
                 <div className="answer-meta">Generated from trusted sources</div>
               </div>
-              
+
               <div className="answer-content">
                 {/* Main Answer Text */}
-                <div 
+                <div
                   className="answer-text"
                   dangerouslySetInnerHTML={formatAnswerText(answer.answer)}
                 />
@@ -431,10 +433,10 @@ function App() {
                     {dataSources.map((source, index) => (
                       <div key={index} className="source-card">
                         <div className="source-name">{source.name}</div>
-                        <a 
-                          href={source.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="source-link"
                         >
                           View Source ↗

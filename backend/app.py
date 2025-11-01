@@ -808,6 +808,13 @@ def process_question(question):
     }
 
 # --- FLASK ROUTES ---
+@app.route('/')
+def home():
+    return {
+        "status": "Backend is running successfully 🚀",
+        "message": "Welcome to the OGD Data Fusion API"
+    }
+
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

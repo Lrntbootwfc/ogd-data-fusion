@@ -1,0 +1,67 @@
+----------------------------------------------------
+
+General Dependencies and Environments
+
+----------------------------------------------------
+
+Python Virtual Environment
+
+/venv
+/.venv
+pycache/
+
+Node Dependencies (for Frontend)
+
+/frontend/node_modules
+/frontend/dist
+/frontend/build
+/frontend/.parcel-cache
+/frontend/.vite
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+/frontend/yarn-error.log*
+
+----------------------------------------------------
+
+Sensitive/Local Data and System Files
+
+----------------------------------------------------
+
+Local Data Cache (backend/data/ folder contains downloaded CSVs/JSONs)
+
+/backend/data/
+
+Log files and Database files (if using a local SQLite/DB file)
+
+*.log
+*.sqlite3
+
+Operating System Files
+
+.DS_Store
+Thumbs.db
+
+Local Configuration Files (credentials/secrets)
+
+*.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.vscode/
+
+----------------------------------------------------
+
+Build/Output Artifacts
+
+----------------------------------------------------
+
+Ignore compiled Python files
+
+/backend/pycache
+/backend/*.pyc
+
+Ignore Pandas/Jupyter files
+
+.ipynb_checkpoints
+.pkl

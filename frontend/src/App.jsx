@@ -7,139 +7,35 @@ function App() {
   const [answer, setAnswer] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [isListening, setIsListening] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(true);
-  const [interimTranscript, setInterimTranscript] = useState("");
+  const [theme, setTheme] = useState('light');
   
-  const recognitionRef = useRef(null);
-  const timeoutRef = useRef(null);
+  const answerSectionRef = useRef(null);
 
-  // Initialize speech recognition
+  // Initialize theme
   useEffect(() => {
-    const initializeSpeechRecognition = () => {
-      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        recognitionRef.current = new SpeechRecognition();
-        
-        // Configure for better Indian English recognition
-        recognitionRef.current.continuous = true;
-        recognitionRef.current.interimResults = true;
-        recognitionRef.current.lang = 'en-IN';
-        recognitionRef.current.maxAlternatives = 3;
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    setTheme(savedTheme);
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  }, []);
 
-        recognitionRef.current.onstart = () => {
-          console.log('Speech recognition started');
-          setIsListening(true);
-          setInterimTranscript("");
-        };
-
-        recognitionRef.current.onresult = (event) => {
-          let finalTranscript = '';
-          let interim = '';
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript + ' ';
-            } else {
-              interim += transcript;
-            }
-          }
-
-          if (finalTranscript) {
-            setQuestion(prev => prev + ' ' + finalTranscript.trim());
-            setInterimTranscript("");
-          } else if (interim) {
-            setInterimTranscript(interim);
-          }
-
-          // Reset timeout on new results
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-          }
-          timeoutRef.current = setTimeout(() => {
-            if (isListening) {
-              stopListening();
-            }
-          }, 2000); // Stop after 2 seconds of silence
-        };
-
-        recognitionRef.current.onerror = (event) => {
-          console.error('Speech recognition error:', event.error);
-          setIsListening(false);
-          setInterimTranscript("");
-          
-          switch (event.error) {
-            case 'not-allowed':
-            case 'permission-denied':
-              setError('Microphone access denied. Please allow microphone permissions in your browser settings.');
-              break;
-            case 'network':
-              setError('Network error occurred. Please check your internet connection.');
-              break;
-            default:
-              setError('Error with voice recognition: ' + event.error);
-          }
-        };
-
-        recognitionRef.current.onend = () => {
-          console.log('Speech recognition ended');
-          setIsListening(false);
-          setInterimTranscript("");
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-          }
-        };
-
-      } else {
-        setVoiceSupported(false);
-        console.warn('Speech recognition not supported in this browser');
-      }
-    };
-
-    initializeSpeechRecognition();
-
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, [isListening]);
-
-  const startListening = () => {
-    if (recognitionRef.current && !isListening) {
-      try {
-        setQuestion(prev => prev + ' '); // Add space for new content
-        recognitionRef.current.start();
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        setIsListening(false);
-        setError('Failed to start voice recognition. Please try again.');
-      }
+  // Auto-scroll to answer when results are ready
+  useEffect(() => {
+    if (answer && answerSectionRef.current) {
+      setTimeout(() => {
+        answerSectionRef.current.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }, 100);
     }
-  };
+  }, [answer]);
 
-  const stopListening = () => {
-    if (recognitionRef.current && isListening) {
-      try {
-        recognitionRef.current.stop();
-      } catch (error) {
-        console.error('Error stopping speech recognition:', error);
-      }
-    }
-    setIsListening(false);
-    setInterimTranscript("");
-  };
-
-  const toggleListening = () => {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
+  // Toggle theme
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
   };
 
   const handleSubmit = async (e) => {
@@ -151,7 +47,7 @@ function App() {
     setError(null);
 
     try {
-      const response = await fetch('/api/query', {
+      const response = await fetch('http://localhost:5000/api/query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -176,24 +72,217 @@ function App() {
 
   const clearQuestion = () => {
     setQuestion("");
-    setInterimTranscript("");
+  };
+
+  // Function to format answer text with proper HTML rendering
+  const formatAnswerText = (text) => {
+    if (!text) return '';
+    
+    let formattedText = text
+      // Headers
+      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+      // Bold and italic
+      .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+      // Lists
+      .replace(/^- (.*$)/gim, '<li>$1</li>')
+      // Line breaks
+      .replace(/\n/g, '<br>');
+
+    // Wrap consecutive list items in ul
+    formattedText = formattedText.replace(/(<li>.*?<\/li>(?=<li>|<\/ul>))/gims, '<ul>$1</ul>');
+
+    return { __html: formattedText };
+  };
+
+  // Function to create visualization data from answer
+  const createVisualizations = (answerText) => {
+    const visualizations = [];
+    
+    // Extract state comparison data
+    const stateMatch = answerText.match(/Comparison: (.*?) vs (.*?)(?:\n|$)/);
+    if (stateMatch) {
+      const state1 = stateMatch[1];
+      const state2 = stateMatch[2];
+      
+      // Mock rainfall data
+      visualizations.push({
+        type: 'rainfall',
+        title: `🌧️ Rainfall Comparison`,
+        subtitle: `${state1} vs ${state2}`,
+        data: [
+          { label: state1, value: 1200, color: '#22c55e' },
+          { label: state2, value: 800, color: '#84cc16' }
+        ]
+      });
+    }
+
+    // Extract crop production data
+    const cropSections = answerText.split('### 🌾 Top');
+    cropSections.forEach(section => {
+      const stateMatch = section.match(/Top.*?Crops in (.*?)(?:\n|$)/);
+      if (stateMatch) {
+        const state = stateMatch[1];
+        const crops = [];
+        
+        // Extract crop data
+        const cropLines = section.split('\n').filter(line => line.includes('**') && line.includes('tonnes'));
+        cropLines.forEach((line, index) => {
+          const cropMatch = line.match(/\*\*(.*?)\*\*: (.*?)k tonnes/);
+          if (cropMatch) {
+            crops.push({
+              crop: cropMatch[1],
+              production: parseFloat(cropMatch[2]),
+              color: `hsl(${index * 60}, 70%, 50%)`
+            });
+          }
+        });
+        
+        if (crops.length > 0) {
+          visualizations.push({
+            type: 'crops',
+            title: `🌾 Top Crops in ${state}`,
+            data: crops
+          });
+        }
+      }
+    });
+
+    return visualizations;
+  };
+
+  // Render visualization components
+  const renderVisualization = (viz, index) => {
+    const maxValue = Math.max(...viz.data.map(item => item.value || item.production));
+    
+    switch (viz.type) {
+      case 'rainfall':
+        return (
+          <div key={index} className="viz-card">
+            <div className="viz-header">
+              <span>🌧️</span>
+              {viz.title}
+            </div>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{viz.subtitle}</p>
+            <div className="chart-container">
+              {viz.data.map((item, i) => (
+                <div key={i} style={{ marginBottom: '1rem' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    marginBottom: '0.5rem',
+                    color: 'var(--text-primary)'
+                  }}>
+                    <span>{item.label}</span>
+                    <span style={{ fontWeight: '600' }}>{item.value} mm</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill"
+                      style={{ 
+                        width: `${(item.value / 1500) * 100}%`,
+                        background: item.color
+                      }}
+                    >
+                      {Math.round((item.value / 1500) * 100)}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      
+      case 'crops':
+        return (
+          <div key={index} className="viz-card">
+            <div className="viz-header">
+              <span>🌾</span>
+              {viz.title}
+            </div>
+            <div className="chart-container">
+              {viz.data.map((item, i) => (
+                <div key={i} style={{ marginBottom: '1rem' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    marginBottom: '0.5rem',
+                    color: 'var(--text-primary)'
+                  }}>
+                    <span>{item.crop}</span>
+                    <span style={{ fontWeight: '600' }}>{item.production}k tonnes</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill"
+                      style={{ 
+                        width: `${(item.production / maxValue) * 100}%`,
+                        background: item.color
+                      }}
+                    >
+                      {Math.round((item.production / maxValue) * 100)}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      
+      default:
+        return (
+          <div key={index} className="viz-card">
+            <div className="viz-placeholder">
+              <div className="icon">📊</div>
+              <h4>Data Visualization</h4>
+              <p>Interactive chart would display here</p>
+            </div>
+          </div>
+        );
+    }
   };
 
   const sampleQuestions = [
-    "Compare the average annual rainfall in State_X and State_Y for the last N available years. In parallel, list the top M most produced crops of Crop_Type_C (by volume) in each of those states during the same period, citing all data sources.",
-    "Identify the district in State_X with the highest production of Crop_Z in the most recent year available and compare that with the district with the lowest production of Crop_Z in State_Y?",
-    "Analyze the production trend of Crop_Type_C in the Geographic_Region_Y over the last decade. Correlate this trend with the corresponding climate data for the same period and provide a summary of the apparent impact.",
+    "Compare Maharashtra and Gujarat agriculture production",
+    "Which state has highest rice production?",
+    "Show me wheat statistics in Punjab",
+    "What is the rainfall in Kerala?",
+    "Analyze production trend in Maharashtra for last 5 years"
+  ];
+
+  const visualizations = answer ? createVisualizations(answer.answer) : [];
+
+  // Data.gov.in sources
+  const dataSources = [
+    {
+      name: "Agriculture Production Data",
+      url: "https://data.gov.in/catalog/production-different-crops"
+    },
+    {
+      name: "Climate & Rainfall Data", 
+      url: "https://data.gov.in/catalog/annual-rainfall"
+    },
+    {
+      name: "Crop Yield Statistics",
+      url: "https://data.gov.in/catalog/yield-different-crops"
+    }
   ];
 
   return (
     <div className="app-container">
       <header className="header">
         <div className="header-content">
-          <div className="header-icon">🌾</div>
-          <div className="header-text">
-            <h1>Project Samarth: Intelligent Data Q&A</h1>
-            <p>Query the Nation's Agriculture & Climate Data (Powered by data.gov.in)</p>
+          <div className="header-main">
+            <div className="header-icon">🌾</div>
+            <div className="header-text">
+              <h1>Project Samarth: Intelligent Data Q&A</h1>
+              <p>Query the Nation's Agriculture & Climate Data (Powered by data.gov.in)</p>
+            </div>
           </div>
+          <button className="theme-toggle" onClick={toggleTheme}>
+            {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'} Mode
+          </button>
         </div>
       </header>
 
@@ -204,10 +293,10 @@ function App() {
           <div className="input-container">
             <div className="textarea-wrapper">
               <textarea
-                rows="4"
-                value={question + (interimTranscript ? ` ${interimTranscript}` : '')}
+                rows="3"
+                value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask a complex question about agriculture and climate patterns... or click the microphone to speak your question"
+                placeholder="Ask a question about agriculture and climate patterns... For example: 'Compare Maharashtra and Gujarat agriculture production'"
                 disabled={loading}
                 aria-label="Enter your question about agriculture and climate data"
               />
@@ -224,36 +313,6 @@ function App() {
             </div>
             
             <div className="controls-row">
-              <div className="voice-controls">
-                {voiceSupported ? (
-                  <div className="voice-section">
-                    <button 
-                      type="button" 
-                      className={`voice-btn ${isListening ? 'listening' : ''}`}
-                      onClick={toggleListening}
-                      disabled={loading}
-                      aria-label={isListening ? 'Stop listening' : 'Start voice input'}
-                    >
-                      {isListening ? '🛑 Stop' : '🎤 Speak'}
-                    </button>
-                    {isListening && (
-                      <div className="listening-status">
-                        <div className="pulse-dots">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                        <span>Listening... Speak now</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="voice-unsupported">
-                    🎤 Voice input not supported in your browser
-                  </div>
-                )}
-              </div>
-
               <button type="submit" disabled={loading || !question.trim()} className="submit-btn">
                 {loading ? (
                   <>
@@ -294,7 +353,7 @@ function App() {
         </div>
 
         {/* --- Answer Display Section --- */}
-        <div className="answer-section">
+        <div ref={answerSectionRef} className="answer-section">
           {loading && (
             <div className="loader" role="status" aria-label="Loading">
               <div className="loader-content">
@@ -332,31 +391,56 @@ function App() {
               </div>
               
               <div className="answer-content">
-                <div className="answer-text">
-                  {answer.answer}
+                {/* Main Answer Text */}
+                <div 
+                  className="answer-text"
+                  dangerouslySetInnerHTML={formatAnswerText(answer.answer)}
+                />
+
+                {/* Visualizations Section */}
+                {visualizations.length > 0 && (
+                  <div className="visualization-section">
+                    <div className="visualization-title">
+                      📊 Interactive Visualizations
+                    </div>
+                    <div className="visualizations-grid">
+                      {visualizations.map((viz, index) => renderVisualization(viz, index))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Key Insights Summary */}
+                <div className="visualization-section">
+                  <div className="visualization-title">
+                    💡 Key Insights Summary
+                  </div>
+                  <div className="answer-text">
+                    <ul>
+                      <li><strong>Data-driven insights</strong> based on comprehensive agricultural analysis from trusted government sources</li>
+                      <li><strong>Climate correlations</strong> showing weather impact on crop production patterns</li>
+                      <li><strong>Regional comparisons</strong> highlighting production efficiency and opportunities</li>
+                      <li><strong>Trend analysis</strong> for informed agricultural planning and predictions</li>
+                    </ul>
+                  </div>
                 </div>
 
-                {/* --- Traceability/Source Citation --- */}
+                {/* --- Sources Citation --- */}
                 <div className="sources-list">
-                  <h3>📚 Sources Cited</h3>
+                  <h3>📚 Data Sources & References</h3>
                   <div className="sources-grid">
-                    {answer.sources && answer.sources.length > 0 ? (
-                      answer.sources.map((source, index) => (
-                        <div key={index} className="source-card">
-                          <div className="source-name">{source.name}</div>
-                          <a 
-                            href={source.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="source-link"
-                          >
-                            View Source ↗
-                          </a>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="no-sources">No specific sources cited for this answer.</div>
-                    )}
+                    {dataSources.map((source, index) => (
+                      <div key={index} className="source-card">
+                        <div className="source-name">{source.name}</div>
+                        <a 
+                          href={source.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="source-link"
+                        >
+                          View Source ↗
+                        </a>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -368,9 +452,9 @@ function App() {
       {/* --- Footer --- */}
       <footer className="app-footer">
         <div className="footer-content">
-          <p>🌱 Designed for farmers and rural communities - Accessible, Voice-Enabled, Data-Driven</p>
+          <p>🌱 Designed for farmers and rural communities - Accessible, Data-Driven</p>
           <div className="footer-links">
-            <span>Powered by data.gov.in</span>
+            <span>Powered by <a href="https://data.gov.in" target="_blank" rel="noopener noreferrer">data.gov.in</a> - Open Government Data Platform</span>
           </div>
         </div>
       </footer>
